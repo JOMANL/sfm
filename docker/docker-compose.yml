@@ -1,0 +1,30 @@
+version: "2.4"
+
+services: 
+  sfm:
+    build: .
+    
+    command: bash -c "jupyter lab --ip=0.0.0.0 --port=8100 --no-browser --allow-root --NotebookApp.token=''"
+
+    working_dir: /home/leo
+
+    network_mode: "host"
+
+    environment:
+      - DISPLAY=${DISPLAY}
+
+    volumes:
+      - type: bind
+        source: ../../
+        target: /home/leo/work
+
+
+#      - type: bind
+#        source: /tmp/.X11-unix
+#        target: /tmp/.X11-unix
+#      - type: bind
+#        source: $HOME/.Xauthority
+#        target: /root/.Xauthority
+
+    env_file: .env
+    shm_size: 50GB
