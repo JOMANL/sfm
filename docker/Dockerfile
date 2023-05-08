@@ -1,9 +1,4 @@
-
-
 FROM python:3.9.8
-
-ENV https_proxy "http://proxy-sen.noc.sony.co.jp:10080"
-ENV http_proxy "http://proxy-sen.noc.sony.co.jp:10080"
 
 RUN apt update \
     && apt install -y curl
