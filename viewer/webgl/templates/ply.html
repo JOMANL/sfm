@@ -45,14 +45,14 @@ function init() {
 	    transparent:true
 	});
 	
-	loader.load("{% static './model/old/model_test.ply' %}", function (geometry) {
+	loader.load("{% static './model/old/model_test2.ply' %}", function (geometry) {
 	    group = new THREE.Points(geometry, pointsMaterial);
 	    group.scale.set(1, 1, 1); 
 	    group.sortParticles = true;
 	    scene.add(group);
 	});
 	
-	loader.load("{% static './model/old/camera.ply' %}", function ( geometry ) {
+	loader.load("{% static './model/old/camera2.ply' %}", function ( geometry ) {
 		geometry.computeVertexNormals();
 		var material = new THREE.MeshBasicMaterial( { vertexColors:true, wireframe: true} );
 		var mesh = new THREE.Mesh( geometry, material );
