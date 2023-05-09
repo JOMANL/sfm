@@ -13,11 +13,13 @@ animate();
 function init() {
     //シーン
     scene = new THREE.Scene();
-    
+
+
     //カメラ
     camera = new THREE.PerspectiveCamera( 75, 640/480, 1, 10000 );
     camera.position.z = 10;
     camera.position.y = 20;
+    
 
     //カメラGUI
     trackball = new THREE.TrackballControls( camera );
@@ -64,14 +66,18 @@ function init() {
 
      
     //グリッド
-    grid = new THREE.GridHelper(100, 20, 0x888888, 0x888888);
-    grid.position.y = 0;
+    grid = new THREE.GridHelper(10, 20, 0x888888, 0x888888);
+    //grid.position.z = 0;
     scene.add(grid);
+
+    // AxesHelper
+    const axesHelper = new THREE.AxesHelper(10);
+    scene.add(axesHelper);
      
     //レンダラー
     renderer = new THREE.WebGLRenderer();
     renderer.setSize( 640, 480 );
-    renderer.setClearColor(new THREE.Color('white'));//背景色の設定
+    renderer.setClearColor(new THREE.Color('black'));//背景色の設定
     document.body.appendChild( renderer.domElement );
   
 }
