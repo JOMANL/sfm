@@ -70,7 +70,7 @@ end_header\n').format(len(Ps)*5,len(Ps)*4
             P = rot.dot(P)
             R = rot.dot(R)
 
-        vertices,edges  =make_view_cone_for_ply(P,R,stat_vertex_idx=idx*5,f=1)
+        vertices,edges  =make_view_cone_for_ply(P,R,stat_vertex_idx=idx*5,f=0.2)
 
         cols = np.tile(np.array(color),(vertices.shape[0],1))
         vertices_w_col = np.concatenate([vertices,cols], axis=1)
@@ -128,8 +128,8 @@ def save_3dpoints_ply(pts,out_ply_file_name, is_write_text,is_swap_yz_for_threej
             'y': y,
             'z': z,
             'red': 255, #np.random.rand(n),
-            'blue': np.random.rand(n),
-            'green': np.random.rand(n)
+            'blue': 0,
+            'green': 0
             }
 
     # build a cloud
