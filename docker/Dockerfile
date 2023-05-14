@@ -146,6 +146,7 @@ ENV OpenCV_DIR=${CMAKE_INSTALL_PREFIX}/lib/cmake/opencv4
 WORKDIR /app
 COPY ["./app/pyproject.toml", "/app/"]
 
+
 # install poetry to python environment
 ENV POETRY_HOME=/opt/poetry
 RUN curl -sSL https://install.python-poetry.org | POETRY_HOME=/opt/poetry python3 -
