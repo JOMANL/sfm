@@ -153,3 +153,12 @@ RUN curl -sSL https://install.python-poetry.org | POETRY_HOME=/opt/poetry python
 ENV PATH="/opt/poetry/bin:$PATH" 
 RUN poetry config virtualenvs.create false \
     && poetry install
+
+RUN git clone https://github.com/uoip/g2opy.git \
+    && cd g2opy \
+    && mkdir build \
+    && cd build \
+    && cmake .. \
+    && make -j8 \
+    && cd .. \
+    && python3 setup.py install
