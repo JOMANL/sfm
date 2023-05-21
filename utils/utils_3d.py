@@ -3,7 +3,7 @@ from pyntcloud import PyntCloud
 import numpy as np
 import pandas as pd
 
-def generate_single_camera_ply(P,R,file_name,color=[0,255,0],is_swap_yz_for_threejs = True):
+def generate_single_camera_ply(P,R,file_name,color=[0,255,0],is_swap_yz_for_threejs = False):
 
     if is_swap_yz_for_threejs:
         rot = np.array([[1,0,0],[0,0,1],[0,1,0]])
@@ -40,7 +40,7 @@ end_header\n').format(len(vertices),len(edges)
     with open(file_name, 'a') as f:
         np.savetxt(f, edges, fmt='%i')
 
-def generate_multiple_camera_ply(Ps,Rs,file_name,color=[0,255,0],is_swap_yz_for_threejs = True):
+def generate_multiple_camera_ply(Ps,Rs,file_name,color=[0,255,0],is_swap_yz_for_threejs = False):
     
     """write header"""
     header = (
@@ -106,7 +106,7 @@ def make_view_cone_for_ply(pos,rot,stat_vertex_idx=0,f=0.1,fov_deg=90,aspect_rat
              [3,stat_vertex_idx+0,stat_vertex_idx+4,stat_vertex_idx+1]]
     return vertices,edges
 
-def save_3dpoints_ply(pts,out_ply_file_name, is_write_text,is_swap_yz_for_threejs = True):
+def save_3dpoints_ply(pts,out_ply_file_name,color = [255,0,0],is_write_text = True,is_swap_yz_for_threejs = False):
     # ref: https://pyntcloud.readthedocs.io/en/latest/io.html
     # the doc is scarce and not complete
 
@@ -127,9 +127,9 @@ def save_3dpoints_ply(pts,out_ply_file_name, is_write_text,is_swap_yz_for_threej
     data = {'x': x,
             'y': y,
             'z': z,
-            'red': 255, #np.random.rand(n),
-            'blue': 0,
-            'green': 0
+            'red': color[0], #np.random.rand(n),
+            'blue': color[1],
+            'green': color[2]
             }
 
     # build a cloud

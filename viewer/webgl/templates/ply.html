@@ -53,8 +53,25 @@ function init() {
 	    group.sortParticles = true;
 	    scene.add(group);
 	});
+
+    loader.load("{% static './model/old/model_test2_ba.ply' %}", function (geometry) {
+	    group = new THREE.Points(geometry, pointsMaterial);
+	    group.scale.set(1, 1, 1); 
+	    group.sortParticles = true;
+	    scene.add(group);
+	});
 	
 	loader.load("{% static './model/old/camera2.ply' %}", function ( geometry ) {
+		geometry.computeVertexNormals();
+		var material = new THREE.MeshBasicMaterial( { vertexColors:true, wireframe: true} );
+		var mesh = new THREE.Mesh( geometry, material );
+		mesh.scale.multiplyScalar( 1 );
+		mesh.castShadow = true;
+		mesh.receiveShadow = true;
+		scene.add( mesh );
+	} );
+
+    loader.load("{% static './model/old/camera2_ba.ply' %}", function ( geometry ) {
 		geometry.computeVertexNormals();
 		var material = new THREE.MeshBasicMaterial( { vertexColors:true, wireframe: true} );
 		var mesh = new THREE.Mesh( geometry, material );
