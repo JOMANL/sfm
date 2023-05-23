@@ -331,33 +331,37 @@ class Sfm3view:
         if pts.shape[0] != wLmks.shape[0]:
             raise Exception("shape must be same")
         
-        init_R = self.views[idx2].R
-        trans_vec = self.views[idx2].t
+        init_R = self.views[idx1].R
+        trans_vec = self.views[idx1].t
         
         rot_vec,_ = cv2.Rodrigues(init_R)
         
-        # (success, rot_vec, trans_vec,inliers) = cv2.solvePnPRansac(wLmks, pts.astype(np.float64), self.K.astype(np.double), 
-        #                                                            np.zeros((5, 1)),
-        #                                                            rot_vec,trans_vec,
-        #                                                             flags=cv2.SOLVEPNP_P3P)
+        dist_coeffs = np.zeros(shape=[8, 1], dtype='float64')
         
-        # (success, rot_vec, trans_vec) = cv2.solvePnP(
-        #     wLmks.astype(np.float64)[:8], pts.astype(np.float64)[:8], self.K.astype(np.double), 
-        #                                                         np.zeros((5, 1)),
-        #                                                         rot_vec,trans_vec,
-        #                                                         flags=cv2.SOLVEPNP_ITERATIVE,useExtrinsicGuess = True)
+        (success, rot_vec, trans_vec,inliers) = cv2.solvePnPRansac(wLmks, pts.astype(np.float64), self.K.astype(np.double), 
+                                                                   dist_coeffs,
+                                                                   reprojectionError=5,
+                                                                    iterationsCount=10000,
+                                                                   rvec=rot_vec,tvec=trans_vec,
+                                                                    flags=cv2.SOLVEPNP_EPNP,useExtrinsicGuess = True)
+        
+        print(np.array(inliers).shape,wLmks.shape)
+        
+        (success, rot_vec, trans_vec) = cv2.solvePnP(
+            wLmks.astype(np.float64), pts.astype(np.float64), self.K.astype(np.double), 
+                                                                dist_coeffs,
+                                                                rot_vec,trans_vec,
+                                                                flags=cv2.SOLVEPNP_ITERATIVE,useExtrinsicGuess = True)
         
         #wRv3,wPv3 = self.PnPRANSAC(wLmks,pts,self.K)#self.solvePNP_byDLT(wLmks,pts)
         
         #wRv3,wPv3 = self.solvePNP_byDLT(wLmks,pts,np.linalg.inv(self.K))
         
-        # if not success:
-        #     raise Exception("[Error] Fail to PNP")
-        #wRv3, jacob = cv2.Rodrigues(rot_vec)
-        #wPv3 = trans_vec.T[0]        
+        if not success:
+            raise Exception("[Error] Fail to PNP")
         
-        wPv3 = trans_vec
-        wRv3 = init_R
+        wRv3 = cv2.Rodrigues(rot_vec)[0].T
+        wPv3 = -wRv3.dot(trans_vec.T)     
         
         return wPv3,wRv3
         

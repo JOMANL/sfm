@@ -69,7 +69,7 @@ end_header\n').format(len(Ps)*5,len(Ps)*4
             rot = np.array([[1,0,0],[0,0,1],[0,1,0]])
             P = rot.dot(P)
             R = rot.dot(R)
-
+        
         vertices,edges  =make_view_cone_for_ply(P,R,stat_vertex_idx=idx*5,f=0.2)
 
         cols = np.tile(np.array(color),(vertices.shape[0],1))
