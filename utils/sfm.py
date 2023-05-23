@@ -1,15 +1,16 @@
 from enum import IntEnum
-import cv2
-import g2o
 import os
-from numpy.linalg import svd, matrix_rank
 
-import copy
+import cv2
+from numpy.linalg import svd
+
 import numpy as np
-import random
-from tmp import *
+
+from geometric_core import *
+from BA import BundleAdjust
 
 class InlierFlag(IntEnum):
+    PnpOutlier = -4
     TriadOutlier = -3
     EpipolarOutlier = -2
     MatchingOutlier = -1
@@ -52,6 +53,8 @@ class Sfm3view:
         self.invK = np.linalg.inv(K)
         
         self.F = None
+        
+        self.BA = BundleAdjust(K)
 
         # For calculation Essential Matrix
         im1 = cv2.imread(os.path.join(sample_data_path,"100_7101.JPG"))
@@ -214,6 +217,57 @@ class Sfm3view:
 
         return pts2,lmks,gids
     
+    def get3Viewcoresspondance(self,idx1,idx2,idx3,isFliterInlier = False):
+        
+        v1 = self.views[idx1]
+        v2 = self.views[idx2]
+        v3 = self.views[idx3]
+        
+        key_1st = "V{:d}".format(idx1)
+        key_2nd = "V{:d}".format(idx2)
+        key_3rd = "V{:d}".format(idx3) 
+
+        pts1 = []
+        pts2 = []
+        pts3 = []
+        lmks = []
+        GIDs = []
+        
+        n = len(self.match_manage_table)
+        for i in range(n):
+            
+            view1_array_idx = self.match_manage_table[i][key_1st]
+            view2_array_idx = self.match_manage_table[i][key_2nd]
+            view3_array_idx = self.match_manage_table[i][key_3rd]
+            
+            if (view1_array_idx is not None and view2_array_idx is not None and view3_array_idx is not None):
+                
+                if isFliterInlier:
+                    if (self.match_manage_table[i]["inlier"] == InlierFlag.Inlier):
+
+                        pts1.append(v1.key_point_uvs[view1_array_idx].pt)
+                        pts2.append(v2.key_point_uvs[view2_array_idx].pt)
+                        pts3.append(v3.key_point_uvs[view3_array_idx].pt)
+                        lmks.append(self.match_manage_table[i]["wLmk"])
+                        GIDs.append(self.match_manage_table[i]["ID"])
+
+                else:
+                    print("ddd")
+                    pts1.append(v1.key_point_uvs[view1_array_idx].pt)
+                    pts2.append(v2.key_point_uvs[view2_array_idx].pt)
+                    pts3.append(v3.key_point_uvs[view3_array_idx].pt)
+                    lmks.append(self.match_manage_table[i]["wLmk"])
+                    GIDs.append(self.match_manage_table[i]["ID"])
+        
+        lmks = np.array(lmks)
+        
+        return pts1,pts2,pts3,lmks,GIDs      
+    
+    def getInliers(self,idx):
+        
+        view = self.views[idx]
+        key = "V{:d}".format(idx)
+    
     def solveEpipolarEqToGetTranslation_2views(self,idx1,idx2):
 
         v1 = self.views[idx1]
@@ -234,89 +288,8 @@ class Sfm3view:
             self.match_manage_table[gid]["inlier"] = InlierFlag.Inlier if inlier_flag == 1 else InlierFlag.EpipolarOutlier
         
         self.updateView(idx1,v1)
-        self.updateView(idx2,v2)
-        
-    def solvePNP_byDLT(self,lmks,uvs,invK):
-        n = lmks.shape[0]
-        if uvs.shape[0] != n:
-            raise  ValueError("[Error]")
-        
-        M = np.zeros((3*n,12+n))
-        for i in range(n):
-            M[3*i,0:3] = lmks[i,:]
-            M[3*i,3] = 1
-            M[3*i+1,4:7] = lmks[i,:]
-            M[3*i+1,7] = 1
-            M[3*i+2,8:11] = lmks[i,:]
-            M[3*i+2,11] = 1
-            M[3*i:3*i+3,i+12] = -np.array([uvs[i,0],uvs[i,1],1])
-            
-        U,S,V = np.linalg.svd(M)
-        
-        P = V[-1,:12].reshape(3,4)
-        R = P[:3,:3]
-        t = P[:3,3]
-        u, _, v = np.linalg.svd(R)
-
-        R = np.matmul(u, v)
-        
-        R = invK.dot(R)
-        t = invK.dot(t)    
-
-        d = np.identity(3)
-
-        d[2][2] = np.linalg.det(np.matmul(u, v))
-
-        R = np.dot(np.dot(u, d), v)
-        C = -np.dot(R.T, t)
-
-        if np.linalg.det(R) < 0:
-            R = -R
-            C = -C
-        
-        return R,C        
-        
-        
-    def PnPRANSAC(self,X, x, calibration_matrix):
-
-        new_r = np.identity(3)
-        threshold = 5
-        cnt = 0
-        new_c = np.zeros((3, 1))
-        homogenous_x = convertHomogeneouos(x)
-
-        for i in range(500):
-            ran_idx = random.sample(range(x.shape[0]), 6)
-
-            alpha =X[ran_idx][:]
-
-            beta =  x[ran_idx][:]
-
-            C, R = LinearPnP(alpha, beta, calibration_matrix)
-            S = []
-
-            homo_alpha = homogenous_x[i][:]
-
-            for j in range(x.shape[0]):
-                reproj = proj3Dto2D(homo_alpha, calibration_matrix, C, R)
-
-                e = np.sqrt(np.square((homogenous_x[j, 0]) - reproj[0]) + np.square((homogenous_x[j,1] - reproj[1])))
-
-                if e < threshold:
-                    S.append(j)
-
-            countS = len(S)
-
-            if (countS == x.shape[0]):
-                break
-
-            if (cnt < countS):
-                cnt = countS
-                new_r = R
-                new_c = C
-
-        return new_r, new_c
-        
+        self.updateView(idx2,v2)    
+                
     def solvePNPToGetToGetTranslation_V2andV3(self,idx1,idx2):
         
         # check wheter 1st view's pose has been solved previously.
@@ -332,36 +305,22 @@ class Sfm3view:
             raise Exception("shape must be same")
         
         init_R = self.views[idx1].R
-        trans_vec = self.views[idx1].t
+        init_t = self.views[idx1].t
         
-        rot_vec,_ = cv2.Rodrigues(init_R)
+        wRv3,wPv3,inliers = solvePNPwRansacOutlierRejection(wLmks,pts,init_R,init_t,self.K)
         
-        dist_coeffs = np.zeros(shape=[8, 1], dtype='float64')
+        # update inlier manage table
+        count = 0
+        for dd in self.match_manage_table:
+            if dd["inlier"] == InlierFlag.Inlier:
+                count += 1
+                
+                if not count in inliers:
+                    dd["inlier"] == InlierFlag.PnpOutlier
         
-        (success, rot_vec, trans_vec,inliers) = cv2.solvePnPRansac(wLmks, pts.astype(np.float64), self.K.astype(np.double), 
-                                                                   dist_coeffs,
-                                                                   reprojectionError=5,
-                                                                    iterationsCount=10000,
-                                                                   rvec=rot_vec,tvec=trans_vec,
-                                                                    flags=cv2.SOLVEPNP_EPNP,useExtrinsicGuess = True)
-        
-        print(np.array(inliers).shape,wLmks.shape)
-        
-        (success, rot_vec, trans_vec) = cv2.solvePnP(
-            wLmks.astype(np.float64), pts.astype(np.float64), self.K.astype(np.double), 
-                                                                dist_coeffs,
-                                                                rot_vec,trans_vec,
-                                                                flags=cv2.SOLVEPNP_ITERATIVE,useExtrinsicGuess = True)
-        
-        #wRv3,wPv3 = self.PnPRANSAC(wLmks,pts,self.K)#self.solvePNP_byDLT(wLmks,pts)
-        
-        #wRv3,wPv3 = self.solvePNP_byDLT(wLmks,pts,np.linalg.inv(self.K))
-        
-        if not success:
-            raise Exception("[Error] Fail to PNP")
-        
-        wRv3 = cv2.Rodrigues(rot_vec)[0].T
-        wPv3 = -wRv3.dot(trans_vec.T)     
+        # update view pose
+        self.views[idx2].R = wRv3
+        self.views[idx2].t = wPv3
         
         return wPv3,wRv3
         
@@ -385,7 +344,11 @@ class Sfm3view:
         a = (X / X[3])[:3]
         
         return a
-        
+
+    def landmark_propagation():
+        return None
+    
+
     def decomposeE2Rt_and_calc_Xs_wrt_v1(self,idx1,idx2):
         
         # check wheter 1st view's pose has been solved previously.
@@ -489,5 +452,18 @@ class Sfm3view:
         
         return w_v1Pv2,v2Rv1,v1Lmks,inlier_mask
         
-    def bundleAdjustmentWith3views(self):
-        return None
+    def make3viewGraphForBA(self):
+        Rs = np.array([self.views[i].R for i in range(3)])
+        Ps = np.array([self.views[i].t for i in range(3)])
+        
+        pts1_inliers,pts2_inliers,pts3_inliers,wLmks,_ = self.get3Viewcoresspondance(0,1,2,True)
+        uvs = np.array([pts1_inliers,pts2_inliers,pts3_inliers])
+        self.BA.make_graph(uvs,wLmks,Rs,Ps)
+        
+    def optimizeBA(self,iter_num = 100):
+        
+        Rs,Ps = self.BA.run_optim(iter_num)
+        
+        for view_idx,(R,Pos) in enumerate(zip(Rs,Ps),0):
+            self.views[view_idx].R = R
+            self.views[view_idx].t = Pos
