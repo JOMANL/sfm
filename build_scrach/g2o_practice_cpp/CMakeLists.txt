@@ -1,0 +1,3 @@
+add_executable(circle_fit circle_fit.cpp)
+set_target_properties(circle_fit PROPERTIES OUTPUT_NAME circle_fit)
+target_link_libraries(circle_fit core solver_dense)
