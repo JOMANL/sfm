@@ -25,6 +25,9 @@ class ViewBase:
         self.R = None
         self.t = None
         
+        self.R_ = None
+        self.t_ = None
+        
         self.matching_inliers = None
         
     def set_image(self,im):
@@ -104,9 +107,8 @@ class Sfm3view:
             if match1.distance < th_ratio*match2.distance:
                 good.append(match1)
 
-        
         if len(self.match_manage_table) == 0:   
-               
+            print("Create New matching table")
             for i,m in enumerate(good):
                 # create new matching table
                     self.match_manage_table.append(
@@ -121,29 +123,30 @@ class Sfm3view:
                     )
         # append pre existed table  
         else:
-            tmp = []
             key_1st = "V{:d}".format(idx1)
-            key_2nd = "V{:d}".format(idx2)  
+            key_2nd = "V{:d}".format(idx2)
+             
+            v1_list = [dd[key_1st] for dd in self.match_manage_table]
+            
+            new_points = []            
             for i,m in enumerate(good):
-                for dd in self.match_manage_table:
-                    view1_array_idx = dd[key_1st]
-                    
-                    if view1_array_idx == m.queryIdx:
-                        dd[key_2nd] = m.trainIdx
-                    else:            
-                        tmp.append(
-                            {
-                                "ID":i,
-                                "V0":None,
-                                "V1":m.queryIdx,
-                                "V2":m.trainIdx,
-                                "wLmk":None,
-                                "inlier": InlierFlag.Inlier
-                            }
-                        )
-                        
-        if len(self.match_manage_table) == 0:
-            self.match_manage_table.extend(tmp)
+                
+                if m.queryIdx in v1_list:
+                    dd = self.match_manage_table[v1_list.index(m.queryIdx)]
+                    dd[key_2nd] = m.trainIdx
+                else:       
+                    new_points.append(
+                        {
+                            "ID":i,
+                            "V0":None,
+                            "V1":m.queryIdx,
+                            "V2":m.trainIdx,
+                            "wLmk":None,
+                            "inlier": InlierFlag.Inlier
+                        }
+                    )
+            print("New {:d} points are added.".format(len(new_points)))
+            self.match_manage_table.extend(new_points)
             
         return good
                 
@@ -315,7 +318,7 @@ class Sfm3view:
             if dd["inlier"] == InlierFlag.Inlier:
                 count += 1
                 
-                if not count in inliers:
+                if not count in inliers and dd["inlier"] == InlierFlag.EpipolarOutlier:
                     dd["inlier"] == InlierFlag.PnpOutlier
         
         # update view pose
@@ -345,9 +348,55 @@ class Sfm3view:
         
         return a
 
-    def landmark_propagation():
-        return None
-    
+    def landmark_propagation(self,idx_ref,idx_tgt):
+
+        key_ref = "V{:d}".format(idx_ref)
+        key_tgt = "V{:d}".format(idx_tgt)     
+        v_ref = self.views[idx_ref] 
+        v_tgt = self.views[idx_tgt]
+        
+        uvs_ref = []
+        uvs_tgt = []
+        for dd in self.match_manage_table:
+            ref_array_idx =  dd[key_ref] 
+            tgt_array_idx =  dd[key_tgt] 
+            if ref_array_idx is not None and \
+                tgt_array_idx is not None and \
+                dd["wLmk"] is None:
+                uvs_ref.append(v_ref.key_point_uvs[ref_array_idx].pt)
+                uvs_tgt.append(v_tgt.key_point_uvs[tgt_array_idx].pt)
+        
+        if len(uvs_ref) == 0:
+            print("[Warning] Matching points does not exist. No landmarks are propageted.")
+            return None
+        
+        wRvRef = v_ref.R
+        wPvRef = v_ref.t
+        
+        wRvTgt = v_tgt.R
+        wPvTgt = v_tgt.t
+        
+        wLmks = []
+        for i,(uvs_ref,uvs_tgt) in enumerate(zip(uvs_ref,uvs_tgt)):
+
+            lmk = self.traiangulate_point(wRvRef,wPvRef,wRvTgt,wPvTgt,uvs_ref,uvs_tgt)
+            
+            if lmk[2] > 0:
+                wLmks.append(lmk)
+                
+        wLmks = np.array(wLmks)
+        
+        # uvs = np.array(uvs)
+        # wRc = self.views[idx].R
+        # wtc = self.views[idx].t[:,np.newaxis]
+        
+        # uvs = np.hstack([uvs,np.ones((uvs.shape[0],1))])
+        # cPxs = np.linalg.inv(self.K).dot(uvs.T)
+        
+        # ctw= - wRc.T.dot(wtc)
+        # wPxs = wRc.T.dot((cPxs - ctw)).T
+            
+        return wLmks
 
     def decomposeE2Rt_and_calc_Xs_wrt_v1(self,idx1,idx2):
         
@@ -465,5 +514,11 @@ class Sfm3view:
         Rs,Ps = self.BA.run_optim(iter_num)
         
         for view_idx,(R,Pos) in enumerate(zip(Rs,Ps),0):
-            self.views[view_idx].R = R
-            self.views[view_idx].t = Pos
+            self.views[view_idx].R_ = R
+            self.views[view_idx].t_ = Pos
+            
+    def updatePoseToResultOfBA(self):
+        
+        for view_idx in range(len(self.views)):
+            self.views[view_idx].R = self.views[view_idx].R_
+            self.views[view_idx].t = self.views[view_idx].t_

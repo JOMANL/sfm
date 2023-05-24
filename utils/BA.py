@@ -16,9 +16,9 @@ class BundleAdjust:
         
         focal_length =self.K[0,0]
         principal_point = (self.K[0,2], self.K[1,2])
-        cam = g2o.CameraParameters(focal_length, principal_point, 0)
-        cam.set_id(0)
-        self.optimizer.add_parameter(cam)
+        self.cam = g2o.CameraParameters(focal_length, principal_point, 0)
+        self.cam.set_id(0)
+        self.optimizer.add_parameter(self.cam)
         
     # --
     # Arges:
@@ -31,9 +31,15 @@ class BundleAdjust:
     # ---
     def make_graph(self,uvs,lmks,Rs,Ps):
         
+        inlier_th = 1000
+        
         poses = []
-        for i,(R,t) in enumerate(zip(Rs,Ps)):
-            pose = g2o.SE3Quat(R, t)
+        for i,(wRc,wtc) in enumerate(zip(Rs,Ps)):
+            
+            cRw = wRc
+            ctw = wtc#cRw.dot(wtc)
+            
+            pose = g2o.SE3Quat(cRw,ctw)
             poses.append(pose)
             
             v_se3 = g2o.VertexSE3Expmap()
@@ -47,37 +53,41 @@ class BundleAdjust:
         inliers = dict()
         sse = defaultdict(float)
 
-        #pts1_inliers,pts2_inliers,pts3_inliers,wLmks,_ = self.get3Viewcoresspondance(0,1,2,True)
-        #print(pts1_inliers.shape,pts2_inliers.shape,pts3_inliers.shape)
-        #match_pts = np.array([pts1_inliers,pts2_inliers,pts3_inliers]).transpose(1,0,2)
         match_pts = uvs.transpose(1,0,2)
         for i, (point,match_pt_views) in enumerate(zip(lmks,match_pts)):
             visible = []
             for j, (pose,match_pt) in enumerate(zip(poses,match_pt_views)):
-                #z = cam.cam_map(pose * point)
-                R = pose.matrix()[:3,:3]
-                t = pose.matrix()[:3,3]
-                XX = self.K.dot(R.T.dot((point-t)))
-                u = XX[0]/XX[2]
-                v = XX[1]/XX[2]
+                z = self.cam.cam_map(pose * point)
+                # R = pose.matrix()[:3,:3]
+                # t = pose.matrix()[:3,3]
+                # XX = self.K.dot(R.T.dot((point-t)))
+                # u = XX[0]/XX[2]
+                # v = XX[1]/XX[2]
+                u = z[0]
+                v = z[1]
                 if 0 <= u < self.K[0,2] * 2 and 0 <= v < self.K[1,2] * 2:
-                    visible.append((j, [u,v],match_pt))
+                    
+                    dist = np.linalg.norm(np.array([u,v])-match_pt)
+                    if dist < inlier_th:
+                        visible.append((j, [u,v],match_pt))
+                        print(u,v,match_pt)
+                        
             if len(visible) < 2:
                 continue
 
             vp = g2o.VertexPointXYZ()
-            vp.set_id(point_id)
+            vp.set_id(point_id + i)
             vp.set_marginalized(True)
             vp.set_estimate(point)
             self.optimizer.add_vertex(vp)
 
             inlier = True
             for j, z, pt in visible:
-
+                
                 edge = g2o.EdgeProjectXYZ2UV()
                 edge.set_vertex(0, vp)
                 edge.set_vertex(1, self.optimizer.vertex(j))
-                edge.set_measurement(pt)
+                edge.set_measurement(z)
                 edge.set_information(np.identity(2))
 
                 edge.set_robust_kernel(g2o.RobustKernelHuber())
@@ -107,8 +117,8 @@ class BundleAdjust:
         Ps = []
 
         for i in range(3):
-            R = vertices[i].estimate().rotation().matrix().T
-            t = -R.dot(vertices[i].estimate().translation())
+            R = vertices[i].estimate().rotation().matrix()#.T
+            t = vertices[i].estimate().translation()#-R.dot(vertices[i].estimate().translation())
             Rs.append(R)
             Ps.append(t)
             

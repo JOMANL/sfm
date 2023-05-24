@@ -60,6 +60,13 @@ function init() {
 	    group.sortParticles = true;
 	    scene.add(group);
 	});
+
+    loader.load("{% static './model/old/model_prop_new.ply' %}", function (geometry) {
+	    group = new THREE.Points(geometry, pointsMaterial);
+	    group.scale.set(1, 1, 1); 
+	    group.sortParticles = true;
+	    scene.add(group);
+	});
 	
 	loader.load("{% static './model/old/camera2.ply' %}", function ( geometry ) {
 		geometry.computeVertexNormals();
