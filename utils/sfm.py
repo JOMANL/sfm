@@ -6,6 +6,7 @@ from numpy.linalg import svd
 
 import numpy as np
 
+from feature_matcher import *
 from geometric_core import *
 from BA import BundleAdjust
 
@@ -37,15 +38,9 @@ class ViewBase:
         
     def set_keypoint_and_descriptor(self,kp,des):
         self.key_point_uvs = kp
-        self.key_point_descriptors = des
-
-class Matcher:
-    def __init__(self):
-        self.detector = cv2.SIFT_create()
-        self.kp_matcher = cv2.BFMatcher()
-    
+        self.key_point_descriptors = des    
 class Sfm:
-    def __init__(self,K,wRv0,wPv0,ims):
+    def __init__(self,K,ims,wRv0 = np.eye(3),wPv0 = np.zeros(3),detector = "SIFT"):
         
         self.wLmks = None
         self.K = K
@@ -74,7 +69,7 @@ class Sfm:
         self.match_manage_table = []
 
         # init matcher
-        self.matcher = Matcher()
+        self.matcher = Matcher(detector)
         
     def updateView(self,idx,view):
         self.views[idx] = view
@@ -85,7 +80,7 @@ class Sfm:
         
         self.views[idx].set_keypoint_and_descriptor(kp,des)
         
-    def matchingKeyPointsOf2views(self,idx1,idx2,th_ratio = 0.5):
+    def matchingKeyPointsOf2views(self,idx1,idx2):
         
         v1 = self.views[idx1]
         v2 = self.views[idx2]
@@ -95,16 +90,11 @@ class Sfm:
         if(v1.key_point_uvs == None or v2.key_point_uvs == None):
             raise Exception("no key points are detected.")
         
-        matches = self.matcher.kp_matcher.knnMatch(v1.key_point_descriptors,v2.key_point_descriptors, k=2)
-
-        good = []
-        for match1,match2 in matches:
-            if match1.distance < th_ratio*match2.distance:
-                good.append(match1)
+        matches = self.matcher.match(v1,v2)
 
         if len(self.match_manage_table) == 0:   
             print("Create New matching table")
-            for i,m in enumerate(good):
+            for i,m in enumerate(matches):
                 
                 data_unit = {
                             "ID":i,
@@ -129,7 +119,7 @@ class Sfm:
             v1_list = [dd[key_1st] for dd in self.match_manage_table]
             
             new_points = []            
-            for i,m in enumerate(good):
+            for i,m in enumerate(matches):
                 
                 if m.queryIdx in v1_list:
                     dd = self.match_manage_table[v1_list.index(m.queryIdx)]
@@ -155,7 +145,7 @@ class Sfm:
             print("New {:d} points are added.".format(len(new_points)))
             self.match_manage_table.extend(new_points)
             
-        return good
+        return matches
                 
     def get2D_2Dcoresspondance(self,idx1,idx2,isFliterInlier = False):
         
