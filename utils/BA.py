@@ -20,7 +20,7 @@ class BundleAdjust:
         self.cam.set_id(0)
         self.optimizer.add_parameter(self.cam)
         
-    # --
+    # ----------------------------------------
     # Arges:
     # uvs  (m x n x 2) [np.ndarray]: m - number of views, n - number of points, projected 2D points of each view.
     # lmks (m x 3) [np.ndarray]: m - number of view, landmarks 3D cordinate with respect to world. 
@@ -28,15 +28,15 @@ class BundleAdjust:
     # Ps (m x 3 x 1) [np.ndarray]: m - number of views, position of each view.
     # Return:
     #
-    # ---
+    # ----------------------------------------
     def make_graph(self,uvs,lmks,Rs,Ps):
         
-        inlier_th = 1000000
+        inlier_th = 1000000000000000000000
         
         poses = []
         for i,(wRc,wtc) in enumerate(zip(Rs,Ps)):
               
-            pose = g2o.SE3Quat(wRc,wtc)
+            pose = g2o.SE3Quat(wRc.T,-wRc.T.dot(wtc))
             poses.append(pose)
             
             v_se3 = g2o.VertexSE3Expmap()
@@ -51,27 +51,21 @@ class BundleAdjust:
         sse = defaultdict(float)
 
         match_pts = uvs.transpose(1,0,2)
+        print(lmks.shape,match_pts.shape)
         for pt_i, (point,match_pt_views) in enumerate(zip(lmks,match_pts)):
-            
-            point_ = wRc.T.dot(point - wtc)
             
             visible = []
             for j, (pose,match_pt) in enumerate(zip(poses,match_pt_views)):
-                z = self.cam.cam_map(pose * point_)
-                # R = pose.matrix()[:3,:3]
-                # t = pose.matrix()[:3,3]
-                # XX = self.K.dot(R.T.dot((point-t)))
-                # u = XX[0]/XX[2]
-                # v = XX[1]/XX[2]
+
+                z = self.cam.cam_map(pose * point)
                 u = z[0]
                 v = z[1]
+                
                 if 0 <= u < self.K[0,2] * 2 and 0 <= v < self.K[1,2] * 2:
-                    
-                    dist = np.linalg.norm(np.array([u,v])-match_pt)
-                    if dist < inlier_th:
-                        visible.append((j,match_pt))
-                        if j > 0:
-                            print(j,u,v,match_pt)
+                    visible.append((j,match_pt))
+                    if j >= 0:
+                        print(j,u,v)
+                        print(j,match_pt)
                         
             if len(visible) < 1:
                 continue
@@ -118,8 +112,8 @@ class BundleAdjust:
         Ps = []
 
         for i in range(3):
-            R = vertices[i].estimate().rotation().matrix()#.T
-            t = vertices[i].estimate().translation()#-R.dot(vertices[i].estimate().translation())
+            R = vertices[i].estimate().rotation().matrix().T
+            t = -R.dot(vertices[i].estimate().translation())
             Rs.append(R)
             Ps.append(t)
             
