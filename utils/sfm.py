@@ -1,5 +1,6 @@
 from enum import IntEnum
 import os
+import copy
 
 import cv2
 from numpy.linalg import svd
@@ -522,3 +523,47 @@ class Sfm3view:
         for view_idx in range(len(self.views)):
             self.views[view_idx].R = self.views[view_idx].R_
             self.views[view_idx].t = self.views[view_idx].t_
+            
+    def check_reprojected_points(self,idx,use_old_buf = False,verbose=False):
+
+        if idx == 0:
+            raise Exception("idx must be > 0.")
+        
+        if not use_old_buf:
+            wRv = self.views[idx].R
+            wPv = self.views[idx].t
+        else:
+            wRv = self.views[idx].R_
+            wPv = self.views[idx].t_
+        
+        pts2,wLmks,_ = self.get2D_3Dcoresspondance(idx-1,idx,True)
+        pts2 = np.int32(pts2)
+        canvas = copy.deepcopy(self.views[idx].im_gray)
+        canvas = cv2.cvtColor(canvas,cv2.COLOR_GRAY2RGB)
+        for p,v1Lmk in zip(pts2,wLmks):
+            cv2.drawMarker(canvas,
+                        position=p,
+                        color=(0, 255, 0),
+                        markerType=cv2.MARKER_CROSS,
+                        markerSize=20,
+                        thickness=2,
+                        line_type=cv2.LINE_4
+                        )
+            
+            XX = self.K.dot(wRv.T.dot(v1Lmk-wPv))
+            u = XX[0]/XX[2]
+            v = XX[1]/XX[2]
+            
+            cv2.drawMarker(canvas,
+                        position=(int(u),int(v)),
+                        color=(255, 0, 0),
+                        markerType=cv2.MARKER_CROSS,
+                        markerSize=20,
+                        thickness=2,
+                        line_type=cv2.LINE_4
+                        )
+            if verbose:
+                if 0 < u < canvas.shape[0] and 0 < v < canvas.shape[1]:
+                    print((u,v),p)
+                
+        return canvas

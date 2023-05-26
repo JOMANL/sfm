@@ -10,7 +10,7 @@ class BundleAdjust:
         self.K = K
         
         self.optimizer = g2o.SparseOptimizer()
-        solver = g2o.BlockSolverSE3(g2o.LinearSolverPCGSE3())
+        solver = g2o.BlockSolverSE3(g2o.LinearSolverDenseSE3())
         solver = g2o.OptimizationAlgorithmLevenberg(solver)
         self.optimizer.set_algorithm(solver)
         
@@ -31,21 +31,18 @@ class BundleAdjust:
     # ---
     def make_graph(self,uvs,lmks,Rs,Ps):
         
-        inlier_th = 1000
+        inlier_th = 1000000
         
         poses = []
         for i,(wRc,wtc) in enumerate(zip(Rs,Ps)):
-            
-            cRw = wRc
-            ctw = wtc#cRw.dot(wtc)
-            
-            pose = g2o.SE3Quat(cRw,ctw)
+              
+            pose = g2o.SE3Quat(wRc,wtc)
             poses.append(pose)
             
             v_se3 = g2o.VertexSE3Expmap()
             v_se3.set_id(i)
             v_se3.set_estimate(pose)
-            if i < 1:
+            if i < 2:
                 v_se3.set_fixed(True)
             self.optimizer.add_vertex(v_se3)
             
@@ -54,10 +51,13 @@ class BundleAdjust:
         sse = defaultdict(float)
 
         match_pts = uvs.transpose(1,0,2)
-        for i, (point,match_pt_views) in enumerate(zip(lmks,match_pts)):
+        for pt_i, (point,match_pt_views) in enumerate(zip(lmks,match_pts)):
+            
+            point_ = wRc.T.dot(point - wtc)
+            
             visible = []
             for j, (pose,match_pt) in enumerate(zip(poses,match_pt_views)):
-                z = self.cam.cam_map(pose * point)
+                z = self.cam.cam_map(pose * point_)
                 # R = pose.matrix()[:3,:3]
                 # t = pose.matrix()[:3,3]
                 # XX = self.K.dot(R.T.dot((point-t)))
@@ -69,25 +69,26 @@ class BundleAdjust:
                     
                     dist = np.linalg.norm(np.array([u,v])-match_pt)
                     if dist < inlier_th:
-                        visible.append((j, [u,v],match_pt))
-                        print(u,v,match_pt)
+                        visible.append((j,match_pt))
+                        if j > 0:
+                            print(j,u,v,match_pt)
                         
-            if len(visible) < 2:
+            if len(visible) < 1:
                 continue
 
             vp = g2o.VertexPointXYZ()
-            vp.set_id(point_id + i)
+            vp.set_id(point_id + pt_i)
             vp.set_marginalized(True)
             vp.set_estimate(point)
             self.optimizer.add_vertex(vp)
 
             inlier = True
-            for j, z, pt in visible:
+            for j, pt in visible:
                 
                 edge = g2o.EdgeProjectXYZ2UV()
                 edge.set_vertex(0, vp)
                 edge.set_vertex(1, self.optimizer.vertex(j))
-                edge.set_measurement(z)
+                edge.set_measurement(pt)
                 edge.set_information(np.identity(2))
 
                 edge.set_robust_kernel(g2o.RobustKernelHuber())
