@@ -32,7 +32,7 @@ class BundleAdjust:
     def make_graph(self,uvs,lmks,Rs,Ps):
         
         inlier_th = 1000000000000000000000
-        
+        self.numViews = len(Rs)
         poses = []
         for i,(wRc,wtc) in enumerate(zip(Rs,Ps)):
               
@@ -111,7 +111,7 @@ class BundleAdjust:
         Rs = []
         Ps = []
 
-        for i in range(3):
+        for i in range(self.numViews):
             R = vertices[i].estimate().rotation().matrix().T
             t = -R.dot(vertices[i].estimate().translation())
             Rs.append(R)

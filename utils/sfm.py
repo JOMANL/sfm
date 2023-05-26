@@ -1,5 +1,4 @@
 from enum import IntEnum
-import os
 import copy
 
 import cv2
@@ -10,7 +9,7 @@ import numpy as np
 from geometric_core import *
 from BA import BundleAdjust
 
-__IS__DEBUG__ = False
+__IS__DEBUG__ = True
 
 class InlierFlag(IntEnum):
     PnpOutlier = -4
@@ -45,8 +44,8 @@ class Matcher:
         self.detector = cv2.SIFT_create()
         self.kp_matcher = cv2.BFMatcher()
     
-class Sfm3view:
-    def __init__(self,K,wRv0,wPv0,im0,im1,im2):
+class Sfm:
+    def __init__(self,K,wRv0,wPv0,ims):
         
         self.wLmks = None
         self.K = K
@@ -58,11 +57,15 @@ class Sfm3view:
         self.BA = BundleAdjust(K)
         
         # init views
-        self.views = [ViewBase(),ViewBase(),ViewBase()]
-        ims = [im0,im1,im2]
+        self.numViews = len(ims)
+        
+        # set view
+        self.views = []
         for j,im in enumerate(ims):
             im_gray = cv2.cvtColor(im,cv2.COLOR_RGB2GRAY)
-            self.views[j].set_image(im_gray)
+            view = ViewBase()
+            view.set_image(im_gray)
+            self.views.append(view)
         
         # init view0 pose
         self.views[0].R = wRv0
@@ -86,6 +89,8 @@ class Sfm3view:
         
         v1 = self.views[idx1]
         v2 = self.views[idx2]
+        key_1st = "V{:d}".format(idx1)
+        key_2nd = "V{:d}".format(idx2)
         
         if(v1.key_point_uvs == None or v2.key_point_uvs == None):
             raise Exception("no key points are detected.")
@@ -100,21 +105,26 @@ class Sfm3view:
         if len(self.match_manage_table) == 0:   
             print("Create New matching table")
             for i,m in enumerate(good):
-                # create new matching table
-                    self.match_manage_table.append(
-                        {
+                
+                data_unit = {
                             "ID":i,
-                            "V0":m.queryIdx,
-                            "V1":m.trainIdx,
-                            "V2":None,
+                            key_1st:m.queryIdx,
+                            key_2nd:m.trainIdx,
                             "wLmk":None,
                             "inlier": InlierFlag.Inlier
                         }
-                    )
+                
+                # allocate for later views
+                all_view_indexs = list(range(self.numViews))
+                unproced_view_indexs = list(filter(lambda i: i !=idx1 and i != idx2, all_view_indexs))
+                for k in unproced_view_indexs:
+                    data_unit["V{:d}".format(k)] = None
+                    
+                # create new matching table
+                self.match_manage_table.append(data_unit)
+                    
         # append pre existed table  
         else:
-            key_1st = "V{:d}".format(idx1)
-            key_2nd = "V{:d}".format(idx2)
              
             v1_list = [dd[key_1st] for dd in self.match_manage_table]
             
@@ -124,17 +134,24 @@ class Sfm3view:
                 if m.queryIdx in v1_list:
                     dd = self.match_manage_table[v1_list.index(m.queryIdx)]
                     dd[key_2nd] = m.trainIdx
-                else:       
-                    new_points.append(
-                        {
-                            "ID":i,
-                            "V0":None,
-                            "V1":m.queryIdx,
-                            "V2":m.trainIdx,
-                            "wLmk":None,
-                            "inlier": InlierFlag.Inlier
-                        }
-                    )
+                else:
+                    data_unit = {
+                        "ID":i,
+                        key_1st:m.queryIdx,
+                        key_2nd:m.trainIdx,
+                        "wLmk":None,
+                        "inlier": InlierFlag.Inlier
+                    }
+                
+                    # allocate for later views
+                    all_view_indexs = list(range(self.numViews))
+                    unproced_view_indexs = list(filter(lambda i: i !=idx1 or i != idx2, all_view_indexs))
+                    
+                    for k in unproced_view_indexs:
+                        data_unit["V{:d}".format(k)] = None
+                    
+                    new_points.append(data_unit)
+                    
             print("New {:d} points are added.".format(len(new_points)))
             self.match_manage_table.extend(new_points)
             
@@ -210,50 +227,47 @@ class Sfm3view:
 
         return pts2,lmks,gids
     
-    def get3Viewcoresspondance(self,idx1,idx2,idx3,isFliterInlier = False):
+    def getAllviewCoresspondance(self,isFliterInlier = False):
         
-        v1 = self.views[idx1]
-        v2 = self.views[idx2]
-        v3 = self.views[idx3]
-        
-        key_1st = "V{:d}".format(idx1)
-        key_2nd = "V{:d}".format(idx2)
-        key_3rd = "V{:d}".format(idx3) 
+        vs = []
+        keys = []
+        for idx in range(self.numViews):
+            vs.append(self.views[idx])
+            keys.append("V{:d}".format(idx))
 
-        pts1 = []
-        pts2 = []
-        pts3 = []
+        views_pts = []
         lmks = []
         GIDs = []
         
         n = len(self.match_manage_table)
         for i in range(n):
             
-            view1_array_idx = self.match_manage_table[i][key_1st]
-            view2_array_idx = self.match_manage_table[i][key_2nd]
-            view3_array_idx = self.match_manage_table[i][key_3rd]
-            
-            if (view1_array_idx is not None and view2_array_idx is not None and view3_array_idx is not None):
-                
+            array_indexs = [self.match_manage_table[i][key] for key in keys]
+            if all(array_indexs):
+                pts = []
                 if isFliterInlier:
                     if (self.match_manage_table[i]["inlier"] == InlierFlag.Inlier):
-
-                        pts1.append(v1.key_point_uvs[view1_array_idx].pt)
-                        pts2.append(v2.key_point_uvs[view2_array_idx].pt)
-                        pts3.append(v3.key_point_uvs[view3_array_idx].pt)
+                        for v,array_index in zip(vs,array_indexs):
+                            pts.append(v.key_point_uvs[array_index].pt)
+                            
+                        views_pts.append(pts)
                         lmks.append(self.match_manage_table[i]["wLmk"])
                         GIDs.append(self.match_manage_table[i]["ID"])
 
                 else:
-                    pts1.append(v1.key_point_uvs[view1_array_idx].pt)
-                    pts2.append(v2.key_point_uvs[view2_array_idx].pt)
-                    pts3.append(v3.key_point_uvs[view3_array_idx].pt)
+                    for v,array_index in zip(vs,array_indexs):
+                        pts.append(v.key_point_uvs[array_index].pt)
+                        
+                    views_pts.append(pts)
                     lmks.append(self.match_manage_table[i]["wLmk"])
                     GIDs.append(self.match_manage_table[i]["ID"])
         
         lmks = np.array(lmks)
+        views_pts = np.array(views_pts).transpose(1,0,2)
         
-        return pts1,pts2,pts3,lmks,GIDs      
+        print(lmks.shape,len(GIDs),np.array(views_pts).shape)
+        
+        return views_pts,lmks,GIDs      
     
     def getInliers(self,idx):
         
@@ -491,14 +505,18 @@ class Sfm3view:
         return w_v1Pv2,v2Rv1,v1Lmks,inlier_mask
         
     def make3viewGraphForBA(self):
-        Rs = np.array([self.views[i].R for i in range(3)])
-        Ps = np.array([self.views[i].t for i in range(3)])
+        Rs = np.array([self.views[i].R for i in range(self.numViews)])
+        Ps = np.array([self.views[i].t for i in range(self.numViews)])
         
-        pts1_inliers,pts2_inliers,pts3_inliers,wLmks,_ = self.get3Viewcoresspondance(0,1,2,True)
+        views_pts_inliers,wLmks,_ = self.getAllviewCoresspondance(True)
+        
+        # length of list check
+        if len(Rs) != len(Ps) != views_pts_inliers.shape[1] != wLmks.shape[0]:
+             raise Exception("The length of array and list must be the same!")
         
         # debug
         if __IS__DEBUG__:
-            for wPv,wRv,pts in zip(Ps,Rs,[pts1_inliers,pts2_inliers,pts3_inliers]):
+            for wPv,wRv,pts in zip(Ps,Rs,views_pts_inliers):
                 vLmks = wRv.T.dot((wLmks - wPv).T)
                 XX = self.K.dot(vLmks)
                 us = XX[0] / XX[2]
@@ -507,7 +525,7 @@ class Sfm3view:
                 for u,v,pt in zip(us,vs,pts):
                     print(u,v,pt)
         
-        uvs = np.array([pts1_inliers,pts2_inliers,pts3_inliers])
+        uvs = np.array(views_pts_inliers)
         self.BA.make_graph(uvs,wLmks,Rs,Ps)
         
     def optimizeBA(self,iter_num = 100):
