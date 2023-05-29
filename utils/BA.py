@@ -10,17 +10,17 @@ class BundleAdjust:
         self.K = K
         
         self.optimizer = g2o.SparseOptimizer()
-        solver = g2o.BlockSolverSE3(g2o.LinearSolverPCGSE3())
+        solver = g2o.BlockSolverSE3(g2o.LinearSolverDenseSE3())
         solver = g2o.OptimizationAlgorithmLevenberg(solver)
         self.optimizer.set_algorithm(solver)
         
         focal_length =self.K[0,0]
         principal_point = (self.K[0,2], self.K[1,2])
-        cam = g2o.CameraParameters(focal_length, principal_point, 0)
-        cam.set_id(0)
-        self.optimizer.add_parameter(cam)
+        self.cam = g2o.CameraParameters(focal_length, principal_point, 0)
+        self.cam.set_id(0)
+        self.optimizer.add_parameter(self.cam)
         
-    # --
+    # ----------------------------------------
     # Arges:
     # uvs  (m x n x 2) [np.ndarray]: m - number of views, n - number of points, projected 2D points of each view.
     # lmks (m x 3) [np.ndarray]: m - number of view, landmarks 3D cordinate with respect to world. 
@@ -28,18 +28,21 @@ class BundleAdjust:
     # Ps (m x 3 x 1) [np.ndarray]: m - number of views, position of each view.
     # Return:
     #
-    # ---
+    # ----------------------------------------
     def make_graph(self,uvs,lmks,Rs,Ps):
         
+        inlier_th = 1000000000000000000000
+        
         poses = []
-        for i,(R,t) in enumerate(zip(Rs,Ps)):
-            pose = g2o.SE3Quat(R, t)
+        for i,(wRc,wtc) in enumerate(zip(Rs,Ps)):
+              
+            pose = g2o.SE3Quat(wRc.T,-wRc.T.dot(wtc))
             poses.append(pose)
             
             v_se3 = g2o.VertexSE3Expmap()
             v_se3.set_id(i)
             v_se3.set_estimate(pose)
-            if i < 1:
+            if i < 2:
                 v_se3.set_fixed(True)
             self.optimizer.add_vertex(v_se3)
             
@@ -47,33 +50,35 @@ class BundleAdjust:
         inliers = dict()
         sse = defaultdict(float)
 
-        #pts1_inliers,pts2_inliers,pts3_inliers,wLmks,_ = self.get3Viewcoresspondance(0,1,2,True)
-        #print(pts1_inliers.shape,pts2_inliers.shape,pts3_inliers.shape)
-        #match_pts = np.array([pts1_inliers,pts2_inliers,pts3_inliers]).transpose(1,0,2)
         match_pts = uvs.transpose(1,0,2)
-        for i, (point,match_pt_views) in enumerate(zip(lmks,match_pts)):
+        print(lmks.shape,match_pts.shape)
+        for pt_i, (point,match_pt_views) in enumerate(zip(lmks,match_pts)):
+            
             visible = []
             for j, (pose,match_pt) in enumerate(zip(poses,match_pt_views)):
-                #z = cam.cam_map(pose * point)
-                R = pose.matrix()[:3,:3]
-                t = pose.matrix()[:3,3]
-                XX = self.K.dot(R.T.dot((point-t)))
-                u = XX[0]/XX[2]
-                v = XX[1]/XX[2]
+
+                z = self.cam.cam_map(pose * point)
+                u = z[0]
+                v = z[1]
+                
                 if 0 <= u < self.K[0,2] * 2 and 0 <= v < self.K[1,2] * 2:
-                    visible.append((j, [u,v],match_pt))
-            if len(visible) < 2:
+                    visible.append((j,match_pt))
+                    if j >= 0:
+                        print(j,u,v)
+                        print(j,match_pt)
+                        
+            if len(visible) < 1:
                 continue
 
             vp = g2o.VertexPointXYZ()
-            vp.set_id(point_id)
+            vp.set_id(point_id + pt_i)
             vp.set_marginalized(True)
             vp.set_estimate(point)
             self.optimizer.add_vertex(vp)
 
             inlier = True
-            for j, z, pt in visible:
-
+            for j, pt in visible:
+                
                 edge = g2o.EdgeProjectXYZ2UV()
                 edge.set_vertex(0, vp)
                 edge.set_vertex(1, self.optimizer.vertex(j))

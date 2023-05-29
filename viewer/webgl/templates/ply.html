@@ -54,7 +54,14 @@ function init() {
 	    scene.add(group);
 	});
 
-    loader.load("{% static './model/old/model_test5_ba.ply' %}", function (geometry) {
+    loader.load("{% static './model/old/model_test6_ba.ply' %}", function (geometry) {
+	    group = new THREE.Points(geometry, pointsMaterial);
+	    group.scale.set(1, 1, 1); 
+	    group.sortParticles = true;
+	    scene.add(group);
+	});
+
+    loader.load("{% static './model/old/model_prop_new.ply' %}", function (geometry) {
 	    group = new THREE.Points(geometry, pointsMaterial);
 	    group.scale.set(1, 1, 1); 
 	    group.sortParticles = true;
@@ -71,7 +78,7 @@ function init() {
 		scene.add( mesh );
 	} );
 
-    loader.load("{% static './model/old/camera5_ba.ply' %}", function ( geometry ) {
+    loader.load("{% static './model/old/camera6_ba.ply' %}", function ( geometry ) {
 		geometry.computeVertexNormals();
 		var material = new THREE.MeshBasicMaterial( { vertexColors:true, wireframe: true} );
 		var mesh = new THREE.Mesh( geometry, material );

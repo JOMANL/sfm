@@ -1,5 +1,6 @@
 from enum import IntEnum
 import os
+import copy
 
 import cv2
 from numpy.linalg import svd
@@ -8,6 +9,8 @@ import numpy as np
 
 from geometric_core import *
 from BA import BundleAdjust
+
+__IS__DEBUG__ = False
 
 class InlierFlag(IntEnum):
     PnpOutlier = -4
@@ -25,6 +28,9 @@ class ViewBase:
         self.R = None
         self.t = None
         
+        self.R_ = None
+        self.t_ = None
+        
         self.matching_inliers = None
         
     def set_image(self,im):
@@ -40,13 +46,7 @@ class Matcher:
         self.kp_matcher = cv2.BFMatcher()
     
 class Sfm3view:
-    
-    def __init__(self,wRv0,wPv0):
-        
-        # sample dataset directory
-        sample_data_path = "../ImageDataset_SceauxCastle/images/"
-
-        K = np.loadtxt(os.path.join(sample_data_path,"K.txt"))
+    def __init__(self,K,wRv0,wPv0,im0,im1,im2):
         
         self.wLmks = None
         self.K = K
@@ -54,30 +54,23 @@ class Sfm3view:
         
         self.F = None
         
+        # init Bundle Adjustment 
         self.BA = BundleAdjust(K)
-
-        # For calculation Essential Matrix
-        im1 = cv2.imread(os.path.join(sample_data_path,"100_7101.JPG"))
-        im2 = cv2.imread(os.path.join(sample_data_path,"100_7102.JPG"))
-        # For Pnp
-        im3 = cv2.imread(os.path.join(sample_data_path,"100_7103.JPG"))
         
-        # gray
-        im1_gray = cv2.cvtColor(im1,cv2.COLOR_RGB2GRAY)
-        im2_gray = cv2.cvtColor(im2,cv2.COLOR_RGB2GRAY)
-        im3_gray = cv2.cvtColor(im3,cv2.COLOR_RGB2GRAY)
-        
+        # init views
         self.views = [ViewBase(),ViewBase(),ViewBase()]
-
-        self.views[0].set_image(im1_gray)
-        self.views[1].set_image(im2_gray)
-        self.views[2].set_image(im3_gray)
+        ims = [im0,im1,im2]
+        for j,im in enumerate(ims):
+            im_gray = cv2.cvtColor(im,cv2.COLOR_RGB2GRAY)
+            self.views[j].set_image(im_gray)
         
+        # init view0 pose
         self.views[0].R = wRv0
         self.views[0].t = wPv0
         
         self.match_manage_table = []
 
+        # init matcher
         self.matcher = Matcher()
         
     def updateView(self,idx,view):
@@ -89,7 +82,7 @@ class Sfm3view:
         
         self.views[idx].set_keypoint_and_descriptor(kp,des)
         
-    def matching2views(self,idx1,idx2,th_ratio = 0.5):
+    def matchingKeyPointsOf2views(self,idx1,idx2,th_ratio = 0.5):
         
         v1 = self.views[idx1]
         v2 = self.views[idx2]
@@ -104,9 +97,8 @@ class Sfm3view:
             if match1.distance < th_ratio*match2.distance:
                 good.append(match1)
 
-        
         if len(self.match_manage_table) == 0:   
-               
+            print("Create New matching table")
             for i,m in enumerate(good):
                 # create new matching table
                     self.match_manage_table.append(
@@ -121,29 +113,30 @@ class Sfm3view:
                     )
         # append pre existed table  
         else:
-            tmp = []
             key_1st = "V{:d}".format(idx1)
-            key_2nd = "V{:d}".format(idx2)  
+            key_2nd = "V{:d}".format(idx2)
+             
+            v1_list = [dd[key_1st] for dd in self.match_manage_table]
+            
+            new_points = []            
             for i,m in enumerate(good):
-                for dd in self.match_manage_table:
-                    view1_array_idx = dd[key_1st]
-                    
-                    if view1_array_idx == m.queryIdx:
-                        dd[key_2nd] = m.trainIdx
-                    else:            
-                        tmp.append(
-                            {
-                                "ID":i,
-                                "V0":None,
-                                "V1":m.queryIdx,
-                                "V2":m.trainIdx,
-                                "wLmk":None,
-                                "inlier": InlierFlag.Inlier
-                            }
-                        )
-                        
-        if len(self.match_manage_table) == 0:
-            self.match_manage_table.extend(tmp)
+                
+                if m.queryIdx in v1_list:
+                    dd = self.match_manage_table[v1_list.index(m.queryIdx)]
+                    dd[key_2nd] = m.trainIdx
+                else:       
+                    new_points.append(
+                        {
+                            "ID":i,
+                            "V0":None,
+                            "V1":m.queryIdx,
+                            "V2":m.trainIdx,
+                            "wLmk":None,
+                            "inlier": InlierFlag.Inlier
+                        }
+                    )
+            print("New {:d} points are added.".format(len(new_points)))
+            self.match_manage_table.extend(new_points)
             
         return good
                 
@@ -252,7 +245,6 @@ class Sfm3view:
                         GIDs.append(self.match_manage_table[i]["ID"])
 
                 else:
-                    print("ddd")
                     pts1.append(v1.key_point_uvs[view1_array_idx].pt)
                     pts2.append(v2.key_point_uvs[view2_array_idx].pt)
                     pts3.append(v3.key_point_uvs[view3_array_idx].pt)
@@ -268,7 +260,7 @@ class Sfm3view:
         view = self.views[idx]
         key = "V{:d}".format(idx)
     
-    def solveEpipolarEqToGetTranslation_2views(self,idx1,idx2):
+    def solveEpipolarEqToGetEssentialMatrix(self,idx1,idx2):
 
         v1 = self.views[idx1]
         v2 = self.views[idx2]
@@ -290,7 +282,7 @@ class Sfm3view:
         self.updateView(idx1,v1)
         self.updateView(idx2,v2)    
                 
-    def solvePNPToGetToGetTranslation_V2andV3(self,idx1,idx2):
+    def solvePNPToGet_v1Tv2(self,idx1,idx2):
         
         # check wheter 1st view's pose has been solved previously.
         if self.views[idx1].R is None or self.views[idx1].t is None:
@@ -304,18 +296,18 @@ class Sfm3view:
         if pts.shape[0] != wLmks.shape[0]:
             raise Exception("shape must be same")
         
-        init_R = self.views[idx1].R
-        init_t = self.views[idx1].t
-        
+        init_R = copy.deepcopy(self.views[idx1].R)
+        init_t = copy.deepcopy(self.views[idx1].t)
+        print(init_t)
         wRv3,wPv3,inliers = solvePNPwRansacOutlierRejection(wLmks,pts,init_R,init_t,self.K)
-        
+        print(init_t)
         # update inlier manage table
         count = 0
         for dd in self.match_manage_table:
             if dd["inlier"] == InlierFlag.Inlier:
                 count += 1
                 
-                if not count in inliers:
+                if not count in inliers and dd["inlier"] == InlierFlag.EpipolarOutlier:
                     dd["inlier"] == InlierFlag.PnpOutlier
         
         # update view pose
@@ -345,9 +337,55 @@ class Sfm3view:
         
         return a
 
-    def landmark_propagation():
-        return None
-    
+    def landmark_propagation(self,idx_ref,idx_tgt):
+
+        key_ref = "V{:d}".format(idx_ref)
+        key_tgt = "V{:d}".format(idx_tgt)     
+        v_ref = self.views[idx_ref] 
+        v_tgt = self.views[idx_tgt]
+        
+        uvs_ref = []
+        uvs_tgt = []
+        for dd in self.match_manage_table:
+            ref_array_idx =  dd[key_ref] 
+            tgt_array_idx =  dd[key_tgt] 
+            if ref_array_idx is not None and \
+                tgt_array_idx is not None and \
+                dd["wLmk"] is None:
+                uvs_ref.append(v_ref.key_point_uvs[ref_array_idx].pt)
+                uvs_tgt.append(v_tgt.key_point_uvs[tgt_array_idx].pt)
+        
+        if len(uvs_ref) == 0:
+            print("[Warning] Matching points does not exist. No landmarks are propageted.")
+            return None
+        
+        wRvRef = v_ref.R
+        wPvRef = v_ref.t
+        
+        wRvTgt = v_tgt.R
+        wPvTgt = v_tgt.t
+        
+        wLmks = []
+        for i,(uvs_ref,uvs_tgt) in enumerate(zip(uvs_ref,uvs_tgt)):
+
+            lmk = self.traiangulate_point(wRvRef,wPvRef,wRvTgt,wPvTgt,uvs_ref,uvs_tgt)
+            
+            if lmk[2] > 0:
+                wLmks.append(lmk)
+                
+        wLmks = np.array(wLmks)
+        
+        # uvs = np.array(uvs)
+        # wRc = self.views[idx].R
+        # wtc = self.views[idx].t[:,np.newaxis]
+        
+        # uvs = np.hstack([uvs,np.ones((uvs.shape[0],1))])
+        # cPxs = np.linalg.inv(self.K).dot(uvs.T)
+        
+        # ctw= - wRc.T.dot(wtc)
+        # wPxs = wRc.T.dot((cPxs - ctw)).T
+            
+        return wLmks
 
     def decomposeE2Rt_and_calc_Xs_wrt_v1(self,idx1,idx2):
         
@@ -457,6 +495,18 @@ class Sfm3view:
         Ps = np.array([self.views[i].t for i in range(3)])
         
         pts1_inliers,pts2_inliers,pts3_inliers,wLmks,_ = self.get3Viewcoresspondance(0,1,2,True)
+        
+        # debug
+        if __IS__DEBUG__:
+            for wPv,wRv,pts in zip(Ps,Rs,[pts1_inliers,pts2_inliers,pts3_inliers]):
+                vLmks = wRv.T.dot((wLmks - wPv).T)
+                XX = self.K.dot(vLmks)
+                us = XX[0] / XX[2]
+                vs = XX[1] / XX[2]
+                
+                for u,v,pt in zip(us,vs,pts):
+                    print(u,v,pt)
+        
         uvs = np.array([pts1_inliers,pts2_inliers,pts3_inliers])
         self.BA.make_graph(uvs,wLmks,Rs,Ps)
         
@@ -465,5 +515,55 @@ class Sfm3view:
         Rs,Ps = self.BA.run_optim(iter_num)
         
         for view_idx,(R,Pos) in enumerate(zip(Rs,Ps),0):
-            self.views[view_idx].R = R
-            self.views[view_idx].t = Pos
+            self.views[view_idx].R_ = R
+            self.views[view_idx].t_ = Pos
+            
+    def updatePoseToResultOfBA(self):
+        
+        for view_idx in range(len(self.views)):
+            self.views[view_idx].R = self.views[view_idx].R_
+            self.views[view_idx].t = self.views[view_idx].t_
+            
+    def check_reprojected_points(self,idx,use_old_buf = False,verbose=False):
+
+        if idx == 0:
+            raise Exception("idx must be > 0.")
+        
+        if not use_old_buf:
+            wRv = self.views[idx].R
+            wPv = self.views[idx].t
+        else:
+            wRv = self.views[idx].R_
+            wPv = self.views[idx].t_
+        
+        pts2,wLmks,_ = self.get2D_3Dcoresspondance(idx-1,idx,True)
+        pts2 = np.int32(pts2)
+        canvas = copy.deepcopy(self.views[idx].im_gray)
+        canvas = cv2.cvtColor(canvas,cv2.COLOR_GRAY2RGB)
+        for p,v1Lmk in zip(pts2,wLmks):
+            cv2.drawMarker(canvas,
+                        position=p,
+                        color=(0, 255, 0),
+                        markerType=cv2.MARKER_CROSS,
+                        markerSize=20,
+                        thickness=2,
+                        line_type=cv2.LINE_4
+                        )
+            
+            XX = self.K.dot(wRv.T.dot(v1Lmk-wPv))
+            u = XX[0]/XX[2]
+            v = XX[1]/XX[2]
+            
+            cv2.drawMarker(canvas,
+                        position=(int(u),int(v)),
+                        color=(255, 0, 0),
+                        markerType=cv2.MARKER_CROSS,
+                        markerSize=20,
+                        thickness=2,
+                        line_type=cv2.LINE_4
+                        )
+            if verbose:
+                if 0 < u < canvas.shape[0] and 0 < v < canvas.shape[1]:
+                    print((u,v),p)
+                
+        return canvas
