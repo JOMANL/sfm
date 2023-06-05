@@ -10,6 +10,8 @@ from feature_matcher import *
 from geometric_core import *
 from BA import BundleAdjust
 
+import warnings
+
 __IS__DEBUG__ = True
 
 class InlierFlag(IntEnum):
@@ -101,7 +103,8 @@ class Sfm:
                             key_1st:m.queryIdx,
                             key_2nd:m.trainIdx,
                             "wLmk":None,
-                            "inlier": InlierFlag.Inlier
+                            "inlier": InlierFlag.Inlier,
+                            "keypoint_match":"{:s}_{:s}".format(key_1st,key_2nd)
                         }
                 
                 # allocate for later views
@@ -130,7 +133,8 @@ class Sfm:
                         key_1st:m.queryIdx,
                         key_2nd:m.trainIdx,
                         "wLmk":None,
-                        "inlier": InlierFlag.Inlier
+                        "inlier": InlierFlag.Inlier,
+                        "keypoint_match":"{:s}_{:s}".format(key_1st,key_2nd)
                     }
                 
                     # allocate for later views
@@ -147,14 +151,14 @@ class Sfm:
             
         return matches
                 
-    def get2D_2Dcoresspondance(self,idx1,idx2,isFliterInlier = False):
+    def get2D_2Dcoresspondance(self,idx1,idx2,isFilterInlier = False):
         
         v1 = self.views[idx1]
         v2 = self.views[idx2]
         
         key_1st = "V{:d}".format(idx1)
         key_2nd = "V{:d}".format(idx2) 
-
+        
         pts1 = []
         pts2 = []
         GIDs = []
@@ -165,25 +169,54 @@ class Sfm:
             view1_array_idx = self.match_manage_table[i][key_1st]
             view2_array_idx = self.match_manage_table[i][key_2nd]
             
-            if (view1_array_idx is not None and view2_array_idx is not None):
+            if (self.match_manage_table[i]["keypoint_match"] == "{:s}_{:s}".format(key_1st,key_2nd)):
+
+                pts1.append(v1.key_point_uvs[view1_array_idx].pt)
+                pts2.append(v2.key_point_uvs[view2_array_idx].pt)
+                GIDs.append(self.match_manage_table[i]["ID"])
                 
-                if isFliterInlier:
-                    if (self.match_manage_table[i]["inlier"] == InlierFlag.Inlier):
-
-                        pts1.append(v1.key_point_uvs[view1_array_idx].pt)
-                        pts2.append(v2.key_point_uvs[view2_array_idx].pt)
-                        GIDs.append(self.match_manage_table[i]["ID"])
-
-                else:
-                    print("ddd")
-                    pts1.append(v1.key_point_uvs[view1_array_idx].pt)
-                    pts2.append(v2.key_point_uvs[view2_array_idx].pt)
-                    GIDs.append(self.match_manage_table[i]["ID"])
-        
-        self.updateView(idx1,v1)
-        self.updateView(idx2,v2)
-        
+        if len(pts1) == 0:
+            warnings.warn("[warning] no matching pairs exist between view {:s} and {:s}.".format(key_1st,key_2nd))
+            
         return pts1,pts2,GIDs
+                
+    # def get2D_2Dcoresspondance(self,idx1,idx2,isFliterInlier = False):
+        
+    #     v1 = self.views[idx1]
+    #     v2 = self.views[idx2]
+        
+    #     key_1st = "V{:d}".format(idx1)
+    #     key_2nd = "V{:d}".format(idx2) 
+
+    #     pts1 = []
+    #     pts2 = []
+    #     GIDs = []
+        
+    #     n = len(self.match_manage_table)
+    #     for i in range(n):
+            
+    #         view1_array_idx = self.match_manage_table[i][key_1st]
+    #         view2_array_idx = self.match_manage_table[i][key_2nd]
+            
+    #         if (view1_array_idx is not None and view2_array_idx is not None):
+                
+    #             if isFliterInlier:
+    #                 if (self.match_manage_table[i]["inlier"] == InlierFlag.Inlier):
+
+    #                     pts1.append(v1.key_point_uvs[view1_array_idx].pt)
+    #                     pts2.append(v2.key_point_uvs[view2_array_idx].pt)
+    #                     GIDs.append(self.match_manage_table[i]["ID"])
+
+    #             else:
+    #                 print("ddd")
+    #                 pts1.append(v1.key_point_uvs[view1_array_idx].pt)
+    #                 pts2.append(v2.key_point_uvs[view2_array_idx].pt)
+    #                 GIDs.append(self.match_manage_table[i]["ID"])
+        
+    #     self.updateView(idx1,v1)
+    #     self.updateView(idx2,v2)
+        
+    #     return pts1,pts2,GIDs
     
     def get2D_3Dcoresspondance(self,idx1,idx2,isFliterInlier = False):
         
